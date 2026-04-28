@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EMG Muscle Fatigue Detection System</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: system-ui, sans-serif; background:#0f1117; color:#e2e8f0; min-height:100vh; }
+  header { background:#1a1f2e; padding:20px 32px; border-bottom:1px solid #2d3748; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { font-size:20px; font-weight:600; color:#fff; }
+  header p  { font-size:13px; color:#718096; }
+  .badge { background:#2d3748; color:#9ae6b4; font-size:11px; padding:4px 10px; border-radius:20px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:16px; padding:24px 32px 0; }
+  .card { background:#1a1f2e; border:1px solid #2d3748; border-radius:12px; padding:16px; }
+  .card label { font-size:11px; color:#718096; text-transform:uppercase; letter-spacing:.05em; display:block; margin-bottom:6px; }
+  .card .val  { font-size:28px; font-weight:600; }
+  .card .unit { font-size:13px; color:#718096; margin-left:4px; }
+  .card .sub  { font-size:12px; color:#718096; margin-top:4px; }
+  .normal   { color:#68d391; }
+  .warning  { color:#f6ad55; }
+  .critical { color:#fc8181; }
+  .status-bar { margin:20px 32px; background:#1a1f2e; border:1px solid #2d3748; border-radius:12px; padding:16px 20px; display:flex; align-items:center; gap:16px; }
+  .status-dot { width:14px; height:14px; border-radius:50%; flex-shrink:0; }
+  .dot-normal   { background:#68d391; }
+  .dot-warning  { background:#f6ad55; animation:pulse 1s infinite; }
+  .dot-critical { background:#fc8181; animation:pulse .5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .status-label { font-size:18px; font-weight:600; }
+  .status-sub   { font-size:13px; color:#718096; margin-left:auto; }
+  .chart-card { margin:0 32px 20px; background:#1a1f2e; border:1px solid #2d3748; border-radius:12px; padding:20px; }
+  .chart-card h3 { font-size:14px; color:#a0aec0; margin-bottom:16px; }
+  .features-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin:0 32px 20px; }
+  .feat { background:#1a1f2e; border:1px solid #2d3748; border-radius:10px; padding:14px; }
+  .feat-name { font-size:12px; color:#718096; margin-bottom:6px; }
+  .feat-bar-bg { background:#2d3748; border-radius:4px; height:6px; }
+  .feat-bar { height:6px; border-radius:4px; transition:width .4s; }
+  .feat-val { font-size:20px; font-weight:600; margin-top:6px; }
+  .nmd-alert { margin:0 32px 20px; background:#2d1f1f; border:1px solid #fc8181; border-radius:10px; padding:14px 18px; color:#fc8181; font-size:14px; display:none; }
+  .info-section { margin:0 32px 32px; display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .info-card { background:#1a1f2e; border:1px solid #2d3748; border-radius:12px; padding:16px; }
+  .info-card h3 { font-size:13px; color:#a0aec0; margin-bottom:10px; }
+  .info-card p  { font-size:12px; color:#718096; line-height:1.7; }
+  .threshold-row { display:flex; justify-content:space-between; font-size:12px; padding:4px 0; border-bottom:1px solid #2d3748; }
+  footer { text-align:center; padding:16px; color:#4a5568; font-size:12px; border-top:1px solid #2d3748; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>EMG Muscle Fatigue Detection System</h1>
+    <p>Biotech Project — ECE Department</p>
+  </div>
+  <span class="badge" id="sim-badge">Simulation mode</span>
+</header>
+
+<div class="grid">
+  <div class="card">
+    <label>RMS voltage</label>
+    <div><span class="val normal" id="rms-val">0.00</span><span class="unit">mV</span></div>
+    <div class="sub">Signal power</div>
+  </div>
+  <div class="card">
+    <label>Median frequency</label>
+    <div><span class="val normal" id="mdf-val">100</span><span class="unit">Hz</span></div>
+    <div class="sub">Drops with fatigue</div>
+  </div>
+  <div class="card">
+    <label>Zero crossing rate</label>
+    <div><span class="val normal" id="zcr-val">0.35</span><span class="unit"></span></div>
+    <div class="sub">Frequency proxy</div>
+  </div>
+  <div class="card">
+    <label>MAV</label>
+    <div><span class="val normal" id="mav-val">0.00</span><span class="unit">mV</span></div>
+    <div class="sub">Mean abs value</div>
+  </div>
+  <div class="card">
+    <label>Session time</label>
+    <div><span class="val" id="time-val" style="color:#90cdf4">0:00</span></div>
+    <div class="sub">Active duration</div>
+  </div>
+</div>
+
+<div class="status-bar">
+  <div class="status-dot dot-normal" id="status-dot"></div>
+  <span class="status-label" id="status-label">NORMAL</span>
+  <span class="status-sub" id="status-sub">Muscle function within normal range</span>
+</div>
+
+<div class="nmd-alert" id="nmd-alert">
+  NMD pattern detected — abnormal burst irregularity. Consult a physician for neuromuscular evaluation.
+</div>
+
+<div class="chart-card">
+  <h3>Live EMG signal — RMS trend</h3>
+  <div style="position:relative;height:220px;">
+    <canvas id="emgChart" role="img" aria-label="Live EMG RMS trend line chart showing fatigue progression over time">EMG trend data</canvas>
+  </div>
+</div>
+
+<div class="features-grid">
+  <div class="feat">
+    <div class="feat-name">RMS fatigue level</div>
+    <div class="feat-bar-bg"><div class="feat-bar" id="bar-rms" style="width:10%;background:#68d391"></div></div>
+    <div class="feat-val normal" id="bar-rms-val">Normal</div>
+  </div>
+  <div class="feat">
+    <div class="feat-name">MDF shift (fatigue indicator)</div>
+    <div class="feat-bar-bg"><div class="feat-bar" id="bar-mdf" style="width:10%;background:#68d391"></div></div>
+    <div class="feat-val normal" id="bar-mdf-val">Fresh</div>
+  </div>
+  <div class="feat">
+    <div class="feat-name">ZCR drop</div>
+    <div class="feat-bar-bg"><div class="feat-bar" id="bar-zcr" style="width:10%;background:#68d391"></div></div>
+    <div class="feat-val normal" id="bar-zcr-val">Normal</div>
+  </div>
+</div>
+
+<div class="info-section">
+  <div class="info-card">
+    <h3>Threshold reference (calibrated)</h3>
+    <div class="threshold-row"><span>RMS normal</span><span class="normal">&lt; 60 mV</span></div>
+    <div class="threshold-row"><span>RMS warning</span><span class="warning">60 – 200 mV</span></div>
+    <div class="threshold-row"><span>RMS critical</span><span class="critical">&gt; 200 mV</span></div>
+    <div class="threshold-row"><span>MDF warning</span><span class="warning">&lt; 80 Hz</span></div>
+    <div class="threshold-row"><span>MDF critical</span><span class="critical">&lt; 60 Hz</span></div>
+    <div class="threshold-row"><span>ZCR warning</span><span class="warning">&lt; 0.25</span></div>
+  </div>
+  <div class="info-card">
+    <h3>About this system</h3>
+    <p>This system detects muscle fatigue using surface EMG signals captured via Myoware 2.0 sensor and skin electrodes. Features extracted: RMS, MDF, ZCR, STD, MAV. Classification uses thresholds derived from published EMG research (De Luca 1997, Merletti 2004). An Edge Impulse neural network model provides secondary classification for neuromuscular disorder pattern detection.</p>
+  </div>
+</div>
+
+<footer>EMG Muscle Fatigue Detection — ECE Biotech Final Year Project</footer>
+
+<script>
+const labels = Array.from({length:60},(_,i)=>i+'s');
+const rmsData = new Array(60).fill(0);
+
+const chart = new Chart(document.getElementById('emgChart'),{
+  type:'line',
+  data:{
+    labels,
+    datasets:[{
+      label:'RMS (mV)',
+      data:rmsData,
+      borderColor:'#68d391',
+      borderWidth:2,
+      pointRadius:0,
+      tension:0.4,
+      fill:true,
+      backgroundColor:'rgba(104,211,145,0.08)'
+    },{
+      label:'Warn threshold',
+      data:new Array(60).fill(120),
+      borderColor:'#f6ad55',
+      borderWidth:1,
+      borderDash:[4,4],
+      pointRadius:0
+    },{
+      label:'Critical threshold',
+      data:new Array(60).fill(220),
+      borderColor:'#fc8181',
+      borderWidth:1,
+      borderDash:[4,4],
+      pointRadius:0
+    }]
+  },
+  options:{
+    responsive:true,
+    maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{ticks:{color:'#718096',font:{size:10}},grid:{color:'rgba(255,255,255,0.05)'}},
+      y:{min:0,max:350,ticks:{color:'#718096',font:{size:10}},grid:{color:'rgba(255,255,255,0.05)'}}
+    }
+  }
+});
+
+// Simulation — replace with real serial data when needed
+let t=0, fatigue=0;
+const statusDot = document.getElementById('status-dot');
+const statusLabel = document.getElementById('status-label');
+const statusSub = document.getElementById('status-sub');
+let sessionSec=0;
+
+setInterval(()=>{ sessionSec++; const m=Math.floor(sessionSec/60),s=sessionSec%60; document.getElementById('time-val').textContent=m+':'+(s<10?'0':'')+s; },1000);
+
+setInterval(()=>{
+  t++;
+  fatigue = Math.min(fatigue + (Math.random()*0.4 - 0.05), 100);
+  const rms = 20 + fatigue*2.2 + (Math.random()*15-7);
+  const mdf = Math.max(55, 110 - fatigue*0.6 + (Math.random()*8-4));
+  const zcr = Math.max(0.15, 0.40 - fatigue*0.003 + (Math.random()*0.04-0.02));
+  const mav = rms * 0.76;
+
+  document.getElementById('rms-val').textContent = rms.toFixed(1);
+  document.getElementById('mdf-val').textContent = mdf.toFixed(0);
+  document.getElementById('zcr-val').textContent = zcr.toFixed(3);
+  document.getElementById('mav-val').textContent = mav.toFixed(1);
+
+  rmsData.shift(); rmsData.push(rms);
+  chart.update('none');
+
+  const level = rms>220||mdf<60?2 : rms>120||mdf<80||zcr<0.25?1 : 0;
+  const colors=['#68d391','#f6ad55','#fc8181'];
+  const dotClasses=['dot-normal','dot-warning','dot-critical'];
+  const labels2=['NORMAL','FATIGUING','!! CRITICAL !!'];
+  const subs=['Muscle function within normal range','Early fatigue detected — consider rest','Critical fatigue — stop activity now'];
+
+  document.getElementById('rms-val').className='val '+(level==0?'normal':level==1?'warning':'critical');
+  document.getElementById('mdf-val').className='val '+(mdf>80?'normal':mdf>60?'warning':'critical');
+  document.getElementById('zcr-val').className='val '+(zcr>0.25?'normal':'warning');
+
+  statusDot.className='status-dot '+dotClasses[level];
+  statusLabel.textContent=labels2[level];
+  statusLabel.style.color=colors[level];
+  statusSub.textContent=subs[level];
+
+  const rmsP=Math.min(rms/300*100,100);
+  const mdfP=Math.min((110-mdf)/60*100,100);
+  const zcrP=Math.min((0.40-zcr)/0.25*100,100);
+  document.getElementById('bar-rms').style.width=rmsP+'%';
+  document.getElementById('bar-mdf').style.width=mdfP+'%';
+  document.getElementById('bar-zcr').style.width=zcrP+'%';
+  document.getElementById('bar-rms').style.background=colors[level];
+  document.getElementById('bar-rms-val').textContent=labels2[level];
+  document.getElementById('bar-rms-val').className='feat-val '+(level==0?'normal':level==1?'warning':'critical');
+  document.getElementById('bar-mdf-val').textContent=mdf>80?'Fresh':mdf>60?'Tiring':'Fatigued';
+  document.getElementById('bar-mdf-val').className='feat-val '+(mdf>80?'normal':mdf>60?'warning':'critical');
+  document.getElementById('bar-zcr-val').textContent=zcr>0.25?'Normal':'Dropping';
+  document.getElementById('bar-zcr-val').className='feat-val '+(zcr>0.25?'normal':'warning');
+
+  if (fatigue>85 && Math.random()>0.7) document.getElementById('nmd-alert').style.display='block';
+  if (fatigue>=100) fatigue=0;
+},800);
+</script>
+</body>
+</html>
